@@ -469,6 +469,192 @@ public class ObjectValidator {
 
         return fields;
     }
+    
+    public <T> boolean validate (T object1, T object2, ArrayList<String> specialFields, Float percentError) {
+        
+        if (object1 == object2 ) {
+            return true;
+        }
+
+        if(object1 instanceof String || object1 instanceof Integer || object1 instanceof Double
+        || object1 instanceof Float || object1 instanceof Character || object1 instanceof Long || object2 instanceof Byte
+        || object2 instanceof String || object2 instanceof Integer || object2 instanceof Double
+                || object2 instanceof Float || object2 instanceof Character || object2 instanceof Byte || object2 instanceof Long){
+            if(object1.equals(object2))
+                return true;
+            else
+                return false;
+        }
+
+        if(!object1.getClass().getName().equalsIgnoreCase(object2.getClass().getName())) {
+            printLogs.error("Classes to both classes does not match - " +object1.getClass().getName() +" : " + object2.getClass().getName());
+            return false;
+        }
+
+        if(object1 instanceof List || object2 instanceof List){
+            if((object1 instanceof List && object2 instanceof List==false)
+                || (object1 instanceof List==false && object2 instanceof List)){
+                printLogs.error("One of the object is List and other is not ");
+                return false;
+            }
+                List list1 = (List) object1;
+                List list2 = (List) object2;
+                if(list1.size()!=list2.size()) {
+                    printLogs.warn(Arrays.toString(list1.toArray()));
+                    printLogs.warn(Arrays.toString(list2.toArray()));
+                    printLogs.error("Size of both the Lists does not match");
+                    return false;
+                }
+                list1 = sortAnyList(list1);
+                list2 = sortAnyList(list2);
+
+            boolean result = true;
+            for (int i = 0; i <list1.size() ; i++) {
+                result &= validate(list1.get(i), list2.get(i), specialFields, percentError);
+            }
+            return result;
+        }
+
+        if(object1.getClass().isArray() || object2.getClass().isArray()) {
+            if ((object1.getClass().isArray() && object2.getClass().isArray() == false)
+                    || (object1.getClass().isArray() == false && object2.getClass().isArray())) {
+                printLogs.error("One of the object is Array and other is not ");
+                return false;
+            }
+
+            List list1 = Arrays.asList((Object[]) object1);
+            List list2 = Arrays.asList((Object[]) object2);
+
+            if(list1.size()!=list2.size()) {
+                printLogs.warn(Arrays.toString(list1.toArray()));
+                printLogs.warn(Arrays.toString(list2.toArray()));
+                printLogs.error("Size of both the Lists does not match");
+                return false;
+            }
+
+            list1 = sortAnyList(list1);
+            list2 = sortAnyList(list2);
+
+            boolean result = true;
+            printLogs.info("Validating lists : " + Arrays.toString(list1.toArray()) + " and " + Arrays.toString(list2.toArray()));
+            for (int i = 0; i <list1.size() ; i++) {
+                result &= validate(list1.get(i), list2.get(i), specialFields, percentError);
+                if(result)
+                    printLogs.info(list1.get(i) + " : " + list2.get(i));
+                else
+                    printLogs.warn(list1.get(i) + " : " + list2.get(i));
+            }
+            return result;
+        }
+
+        if(object1 instanceof Map || object2 instanceof  Map){
+            if((object1 instanceof Map && object2 instanceof Map==false)
+                    || (object1 instanceof Map==false && object2 instanceof Map)){
+                printLogs.error("One of the object is Map and other is not ");
+                return false;
+            }
+            boolean result = true;
+            Map map1 = (Map) object1;
+            Map map2 = (Map) object2;
+            if(map1.size()!=map2.size()) {
+                printLogs.warn("FAILED.......Size of both the Maps, does not match");
+                printLogs.info("Map 1: ");
+                Set set = map1.keySet();
+                Iterator iterator = set.iterator();
+                while(iterator.hasNext()){
+                    Object key = iterator.next();
+                    Object objectVal1 = map1.get(key);
+                    printLogs.info("Map Key : " +  key + ", Value : " + objectVal1);
+                }
+
+                printLogs.info("Map 2: ");
+                Set set2 = map2.keySet();
+                Iterator iterator2 = set2.iterator();
+                while(iterator2.hasNext()){
+                    Object key = iterator2.next();
+                    Object objectVal1 = map2.get(key);
+                    printLogs.info("Map Key : " +  key + ", Value : " + objectVal1);
+                }
+                return false;
+            }
+
+
+            Set set = (map2.size()>map1.size())?map2.keySet():map1.keySet();
+            Iterator iterator = set.iterator();
+            while(iterator.hasNext()){
+                Object key = iterator.next();
+                Object objectVal1 = map1.get(key);
+                Object objectVal2= map2.get(key);
+                if(specialFields==null || !specialFields.contains(key) ){
+                    if (validate(objectVal1, objectVal2, specialFields, percentError)) {
+                        printLogs.info("Map Key : " + key + ", Values : " + objectVal1 + " : " + objectVal2);
+                        result &= true;
+                    } else {
+                        printLogs.warn("FAILED.......Map Key : " + key + ", Values : " + objectVal1 + " : " + objectVal2);
+                        result &= false;
+                    }
+                }else{
+                    printLogs.info("Ignoring Field " +key + " from validation");
+                }
+            }
+            return result;
+        }
+
+        EqualsBuilder eq = new EqualsBuilder();
+        //Field[] fields = object1.getClass().getDeclaredFields();
+        ArrayList<Field> fields = (ArrayList<Field>) getAllFields(new ArrayList<>(),object1.getClass());
+        for(Field f : fields) {
+            try {
+                if(!f.getName().equalsIgnoreCase("printLogs")){
+                    Method getterMethod = findGetterMethod(object1,f.getName());
+                    if (getterMethod != null) {
+                        if (getterMethod.invoke(object1) != null && getterMethod.invoke(object2) != null) {
+
+                            Object objectInvoke1 = getterMethod.invoke(object1);
+                            Object objectInvoke2 = getterMethod.invoke(object2);
+                            boolean result = false;
+                            boolean specialFieldsPresent = false;
+                            if(specialFields!=null && specialFields.contains(f.getName())){
+                                result = checkPercentageDiff((Integer) objectInvoke1, (Integer) objectInvoke2, percentError);
+                                specialFieldsPresent = true;
+                            }
+                            else {
+                                result = validate(objectInvoke1, objectInvoke2, specialFields, percentError);
+                            }
+                            eq.append(true, result);
+
+                            if (result) {
+                                if (specialFieldsPresent) {
+                                    float diff = getPercentageDiff((Integer)objectInvoke1, (Integer)objectInvoke2);
+                                    printLogs.info(f.getName() + " : Percent diff : " + Float.toString(diff) + " : " + objectInvoke1 + " : " + objectInvoke2);
+                                }
+                                else 
+                                    printLogs.info(f.getName() + " : " + objectInvoke1 + " : " + objectInvoke2);
+                            }
+                            else{
+                                if (specialFieldsPresent) {
+                                    float diff = getPercentageDiff((Integer)objectInvoke1, (Integer)objectInvoke2);
+                                    printLogs.info("FAILED............" + f.getName() + " : Percent diff : " + Float.toString(diff) + " : " + objectInvoke1 + " : " + objectInvoke2);
+                                }
+                                else 
+                                    printLogs.info("FAILED............" + f.getName() + " : " + objectInvoke1 + " : " + objectInvoke2);
+                            }
+                        } else if (getterMethod.invoke(object1) != null || getterMethod.invoke(object2) != null) {
+                            printLogs.info(f.getName() + " : "+getterMethod.invoke(object1) + " : "+getterMethod.invoke(object2));
+                            return false;
+                        }
+                    }
+                }
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+                return false;
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
+            }
+
+        }
+        return eq.isEquals();
+    }
 
     public static void main(String[] args) {
         HashMap<Integer, Integer> map1 = new HashMap<>();
